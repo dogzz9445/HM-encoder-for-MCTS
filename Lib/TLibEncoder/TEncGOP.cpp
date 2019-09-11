@@ -1188,9 +1188,15 @@ printHash(const HashType hashType, const std::string &digestStr)
 // ====================================================================================================================
 // Public member functions
 // ====================================================================================================================
+#if ENCODER_EXTENTION_ONE_BY_DONGMIN
+Void TEncGOP::compressGOP( Int iPOCLast, Int iNumPicRcvd, TComList<TComPic*>& rcListPic,
+                           TComList<TComPicYuv*>& rcListPicYuvRecOut, std::list<AccessUnit>& accessUnitsInGOP, std::list<AccessUnit>& accessBaseUnits,
+                           Bool isField, Bool isTff, const InputColourSpaceConversion snr_conversion, const TEncAnalyze::OutputLogControl& outputLogCtrl)
+#else
 Void TEncGOP::compressGOP( Int iPOCLast, Int iNumPicRcvd, TComList<TComPic*>& rcListPic,
                            TComList<TComPicYuv*>& rcListPicYuvRecOut, std::list<AccessUnit>& accessUnitsInGOP,
                            Bool isField, Bool isTff, const InputColourSpaceConversion snr_conversion, const TEncAnalyze::OutputLogControl &outputLogCtrl )
+#endif
 {
   // TODO: Split this function up.
 
@@ -1273,6 +1279,10 @@ Void TEncGOP::compressGOP( Int iPOCLast, Int iNumPicRcvd, TComList<TComPic*>& rc
     // start a new access unit: create an entry in the list of output access units
     accessUnitsInGOP.push_back(AccessUnit());
     AccessUnit& accessUnit = accessUnitsInGOP.back();
+#if ENCODER_EXTENTION_ONE_BY_DONGMIN
+    // FIXME:
+    // accessUnitsInGOP.push_back(AccessUnit());
+#endif
     xGetBuffer( rcListPic, rcListPicYuvRecOut, iNumPicRcvd, iTimeOffset, pcPic, pcPicYuvRecOut, pocCurr, isField );
 
 #if REDUCED_ENCODER_MEMORY

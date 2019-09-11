@@ -166,13 +166,21 @@ public:
   // encoder function
   // -------------------------------------------------------------------------------------------------------------------
 
+  // MODIFIED BY DONG
   /// encode several number of pictures until end-of-sequence
+#if ENCODER_EXTENTION_ONE_BY_DONGMIN
   Void encode( Bool bEos,
                TComPicYuv* pcPicYuvOrg,
                TComPicYuv* pcPicYuvTrueOrg, const InputColourSpaceConversion snrCSC, // used for SNR calculations. Picture in original colour space.
                TComList<TComPicYuv*>& rcListPicYuvRecOut,
-               std::list<AccessUnit>& accessUnitsOut, Int& iNumEncoded );
-
+               std::list<AccessUnit>& accessUnitsOut, std::list<AccessUnit>& accessBaseUnitsOut, Int& iNumEncoded );
+#else
+  Void encode(Bool bEos,
+    TComPicYuv* pcPicYuvOrg,
+    TComPicYuv* pcPicYuvTrueOrg, const InputColourSpaceConversion snrCSC, // used for SNR calculations. Picture in original colour space.
+    TComList<TComPicYuv*>& rcListPicYuvRecOut,
+    std::list<AccessUnit>& accessUnitsOut, Int& iNumEncoded );
+#endif
   /// encode several number of pictures until end-of-sequence
   Void encode( Bool bEos, TComPicYuv* pcPicYuvOrg,
                TComPicYuv* pcPicYuvTrueOrg, const InputColourSpaceConversion snrCSC, // used for SNR calculations. Picture in original colour space.

@@ -573,6 +573,13 @@ Void TAppEncTop::encode()
     exit(EXIT_FAILURE);
   }
 
+  fstream extentionFile("extention.bin", fstream::binary | fstream::out);
+
+  if (!extentionFile)
+  {
+    fprintf(stderr, "\nfailed to open bitstream file for writing\n");
+    exit(EXIT_FAILURE);
+  }
   TComPicYuv*       pcPicYuvOrg = new TComPicYuv;
   TComPicYuv*       pcPicYuvRec = NULL;
 
@@ -591,6 +598,7 @@ Void TAppEncTop::encode()
   const InputColourSpaceConversion snrCSC = (!m_snrInternalColourSpace) ? m_inputColourSpaceConvert : IPCOLOURSPACE_UNCHANGED;
 
   list<AccessUnit> outputAccessUnits; ///< list of access units to write out.  is populated by the encoding process
+  list<AccessUnit> outputAccessBaseUnits; // MODIFIED BY DONG
 
   TComPicYuv cPicYuvTrueOrg;
 
@@ -610,7 +618,7 @@ Void TAppEncTop::encode()
   TExt360AppEncTop           ext360(*this, m_cTEncTop.getGOPEncoder()->getExt360Data(), *(m_cTEncTop.getGOPEncoder()), *pcPicYuvOrg);
 #endif
 
-  while ( !bEos )
+  while (!bEos)
   {
     // get buffers
     xGetBuffer(pcPicYuvRec);
@@ -623,16 +631,16 @@ Void TAppEncTop::encode()
     }
     else
     {
-      m_cTVideoIOYuvInputFile.read( pcPicYuvOrg, &cPicYuvTrueOrg, ipCSC, m_aiPad, m_InputChromaFormatIDC, m_bClipInputVideoToRec709Range );
+      m_cTVideoIOYuvInputFile.read(pcPicYuvOrg, &cPicYuvTrueOrg, ipCSC, m_aiPad, m_InputChromaFormatIDC, m_bClipInputVideoToRec709Range);
     }
 #else
-    m_cTVideoIOYuvInputFile.read( pcPicYuvOrg, &cPicYuvTrueOrg, ipCSC, m_aiPad, m_InputChromaFormatIDC, m_bClipInputVideoToRec709Range );
+    m_cTVideoIOYuvInputFile.read(pcPicYuvOrg, &cPicYuvTrueOrg, ipCSC, m_aiPad, m_InputChromaFormatIDC, m_bClipInputVideoToRec709Range);
 #endif
 
     // increase number of received frames
     m_iFrameRcvd++;
 
-    bEos = (m_isField && (m_iFrameRcvd == (m_framesToBeEncoded >> 1) )) || ( !m_isField && (m_iFrameRcvd == m_framesToBeEncoded) );
+    bEos = (m_isField && (m_iFrameRcvd == (m_framesToBeEncoded >> 1))) || (!m_isField && (m_iFrameRcvd == m_framesToBeEncoded));
 
     Bool flush = 0;
     // if end of file (which is only detected on a read failure) flush the encoder of any queued pictures
@@ -645,13 +653,29 @@ Void TAppEncTop::encode()
     }
 
     // call encoding function for one frame
-    if ( m_isField )
+    if (m_isField)
     {
-      m_cTEncTop.encode( bEos, flush ? 0 : pcPicYuvOrg, flush ? 0 : &cPicYuvTrueOrg, snrCSC, m_cListPicYuvRec, outputAccessUnits, iNumEncoded, m_isTopFieldFirst );
+      m_cTEncTop.encode(bEos, flush ? 0 : pcPicYuvOrg, flush ? 0 : &cPicYuvTrueOrg, snrCSC, m_cListPicYuvRec, outputAccessUnits, iNumEncoded, m_isTopFieldFirst);
     }
     else
     {
-      m_cTEncTop.encode( bEos, flush ? 0 : pcPicYuvOrg, flush ? 0 : &cPicYuvTrueOrg, snrCSC, m_cListPicYuvRec, outputAccessUnits, iNumEncoded );
+#if ENCODER_EXTENTION_ONE_BY_DONGMIN
+      m_cTEncTop.encode(bEos, flush ? 0 : pcPicYuvOrg, flush ? 0 : &cPicYuvTrueOrg, snrCSC, m_cListPicYuvRec, outputAccessUnits, outputAccessBaseUnits, iNumEncoded);
+#else
+      m_cTEncTop.encode(bEos, flush ? 0 : pcPicYuvOrg, flush ? 0 : &cPicYuvTrueOrg, snrCSC, m_cListPicYuvRec, outputAccessUnits, iNumEncoded);
+#endif
+    }
+
+    for (auto it = outputAccessUnits.begin(); it != outputAccessUnits.end(); ++it)
+    {
+      auto accessBaseUnit = (*it);
+      NalUnitType nalType = accessBaseUnit.back()->m_nalUnitType;
+      if ( nalType == NAL_UNIT_CODED_SLICE_IDR_W_RADL ||
+           nalType == NAL_UNIT_CODED_SLICE_IDR_N_LP )
+      {
+        AccessUnit outAccessBaseUnit = (AccessUnit)accessBaseUnit;
+        outputAccessBaseUnits.push_back(outAccessBaseUnit);
+      }
     }
 
     // write bistream to file if necessary
@@ -660,6 +684,13 @@ Void TAppEncTop::encode()
       xWriteOutput(bitstreamFile, iNumEncoded, outputAccessUnits);
       outputAccessUnits.clear();
     }
+//#if ENCODER_EXTENTION_ONE_BY_DONGMIN
+    if ( !outputAccessBaseUnits.empty() )
+    {
+      xWriteOutputBase(extentionFile, outputAccessBaseUnits.size(), outputAccessBaseUnits);
+      outputAccessBaseUnits.clear();
+    }
+//#endif
     // temporally skip frames
     if( m_temporalSubsampleRatio > 1 )
     {
@@ -793,6 +824,64 @@ Void TAppEncTop::xWriteOutput(std::ostream& bitstreamFile, Int iNumEncoded, cons
         m_cTVideoIOYuvReconFile.write( pcPicYuvRec, ipCSC, m_confWinLeft, m_confWinRight, m_confWinTop, m_confWinBottom,
             NUM_CHROMA_FORMAT, m_bClipOutputVideoToRec709Range  );
       }
+
+      const AccessUnit& au = *(iterBitstream++);
+      const vector<UInt>& stats = writeAnnexB(bitstreamFile, au);
+      rateStatsAccum(au, stats);
+    }
+  }
+}
+
+Void TAppEncTop::xWriteOutputBase(std::ostream& bitstreamFile, Int iNumEncoded, const std::list<AccessUnit>& accessUnits)
+{
+  const InputColourSpaceConversion ipCSC = (!m_outputInternalColourSpace) ? m_inputColourSpaceConvert : IPCOLOURSPACE_UNCHANGED;
+
+  if (m_isField)
+  {
+    //Reinterlace fields
+    Int i;
+    TComList<TComPicYuv*>::iterator iterPicYuvRec = m_cListPicYuvRec.end();
+    list<AccessUnit>::const_iterator iterBitstream = accessUnits.begin();
+
+    for (i = 0; i < iNumEncoded; i++)
+    {
+      --iterPicYuvRec;
+    }
+
+    for (i = 0; i < iNumEncoded / 2; i++)
+    {
+      TComPicYuv* pcPicYuvRecTop = *(iterPicYuvRec++);
+      TComPicYuv* pcPicYuvRecBottom = *(iterPicYuvRec++);
+
+      if (!m_reconFileName.empty())
+      {
+        m_cTVideoIOYuvReconFile.write(pcPicYuvRecTop, pcPicYuvRecBottom, ipCSC, m_confWinLeft, m_confWinRight, m_confWinTop, m_confWinBottom, NUM_CHROMA_FORMAT, m_isTopFieldFirst);
+      }
+
+      const AccessUnit& auTop = *(iterBitstream++);
+      const vector<UInt>& statsTop = writeAnnexB(bitstreamFile, auTop);
+      rateStatsAccum(auTop, statsTop);
+
+      const AccessUnit& auBottom = *(iterBitstream++);
+      const vector<UInt>& statsBottom = writeAnnexB(bitstreamFile, auBottom);
+      rateStatsAccum(auBottom, statsBottom);
+    }
+  }
+  else
+  {
+    Int i;
+
+    TComList<TComPicYuv*>::iterator iterPicYuvRec = m_cListPicYuvRec.end();
+    list<AccessUnit>::const_iterator iterBitstream = accessUnits.begin();
+
+    for (i = 0; i < iNumEncoded; i++)
+    {
+      --iterPicYuvRec;
+    }
+
+    for (i = 0; i < iNumEncoded; i++)
+    {
+      TComPicYuv* pcPicYuvRec = *(iterPicYuvRec++);
 
       const AccessUnit& au = *(iterBitstream++);
       const vector<UInt>& stats = writeAnnexB(bitstreamFile, au);

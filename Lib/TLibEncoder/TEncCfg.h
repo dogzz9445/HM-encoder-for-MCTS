@@ -42,6 +42,8 @@
 #pragma once
 #endif // _MSC_VER > 1000
 
+#define ENCODER_EXTENTION_ONE_BY_DONGMIN false
+
 #include "TLibCommon/CommonDef.h"
 #include "TLibCommon/TComSlice.h"
 #include <assert.h>
